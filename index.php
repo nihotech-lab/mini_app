@@ -2,12 +2,100 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
-use App\Models\Participant;
-use App\Http\Middleware\AdminAuth;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Eloquent\Model;
 
-// ------------------------------------------------------------------
-// Shared data
-// ------------------------------------------------------------------
+// ==================================================================
+// 0. MODEL (defined here so everything lives in one file)
+// ==================================================================
+if (!class_exists('Participant')) {
+    class Participant extends Model
+    {
+        protected $table = 'participants';
+
+        protected $fillable = [
+            'name', 'phone', 'email', 'grade', 'category',
+            'team_name', 'project_title', 'projects', 'goals',
+            'screenshot', 'status',
+        ];
+
+        public function scopeCategory($query, $category)
+        {
+            if ($category && $category !== 'all') {
+                $query->where('category', $category);
+            }
+            return $query;
+        }
+
+        public function scopeStatus($query, $status)
+        {
+            if ($status && $status !== 'all') {
+                $query->where('status', $status);
+            }
+            return $query;
+        }
+
+        public function scopeSearch($query, $term)
+        {
+            if ($term) {
+                $query->where(function ($q) use ($term) {
+                    $q->where('name', 'like', "%{$term}%")
+                      ->orWhere('team_name', 'like', "%{$term}%")
+                      ->orWhere('project_title', 'like', "%{$term}%")
+                      ->orWhere('phone', 'like', "%{$term}%")
+                      ->orWhere('email', 'like', "%{$term}%");
+                });
+            }
+            return $query;
+        }
+    }
+}
+
+// ==================================================================
+// 0b. AUTO-MIGRATE (creates/updates the table without a separate
+//     migration file — for production, move this into a real
+//     migration instead of running it on every request)
+// ==================================================================
+if (!Schema::hasTable('participants')) {
+    Schema::create('participants', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('phone')->nullable();
+        $table->string('email')->nullable();
+        $table->string('grade');
+        $table->string('category')->default('robotics');
+        $table->string('team_name')->nullable();
+        $table->string('project_title')->nullable();
+        $table->text('projects');
+        $table->text('goals');
+        $table->string('screenshot');
+        $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
+        $table->timestamps();
+    });
+} else {
+    Schema::table('participants', function (Blueprint $table) {
+        if (!Schema::hasColumn('participants', 'phone'))         $table->string('phone')->nullable();
+        if (!Schema::hasColumn('participants', 'email'))         $table->string('email')->nullable();
+        if (!Schema::hasColumn('participants', 'category'))      $table->string('category')->default('robotics');
+        if (!Schema::hasColumn('participants', 'team_name'))     $table->string('team_name')->nullable();
+        if (!Schema::hasColumn('participants', 'project_title')) $table->string('project_title')->nullable();
+        if (!Schema::hasColumn('participants', 'status'))        $table->string('status')->default('pending');
+    });
+}
+
+// ==================================================================
+// 0c. HELPERS
+// ==================================================================
+function requireAdmin()
+{
+    if (!session('is_admin')) {
+        return redirect('/admin/login');
+    }
+    return null;
+}
+
 $categories = [
     'robotics' => 'ሮቦቲክስ እና ኢኖቬሽን (Robotics & Innovation)',
     'software' => 'ሶፍትዌር ልማት (Software Development)',
@@ -25,6 +113,26 @@ $headStyles = '
         .glow { box-shadow: 0 0 40px rgba(56,189,248,0.25); }
     </style>
 ';
+
+$navbar = function ($active) {
+    $links = [
+        'dashboard'    => ['/admin/dashboard', 'ዳሽቦርድ'],
+        'participants' => ['/admin/participants', 'ተሳታፊዎች'],
+    ];
+    $html = '<nav class="bg-gray-900 text-white px-6 py-4 flex justify-between items-center">
+        <span class="font-bold">🚀 Admin Panel</span>
+        <div class="flex gap-6 items-center">';
+    foreach ($links as $key => [$url, $label]) {
+        $cls = $key === $active ? 'text-cyan-400 font-semibold' : 'text-gray-300 hover:text-white';
+        $html .= '<a href="' . $url . '" class="' . $cls . '">' . $label . '</a>';
+    }
+    $html .= '<form action="/admin/logout" method="POST" class="inline">
+            <input type="hidden" name="_token" value="' . csrf_token() . '">
+            <button type="submit" class="text-red-400 hover:text-red-300">ውጣ</button>
+        </form>
+    </div></nav>';
+    return $html;
+};
 
 // ==================================================================
 // 1. HOME / LANDING PAGE
@@ -167,7 +275,7 @@ Route::post('/register', function (Request $request) use ($categories) {
 });
 
 // ==================================================================
-// 4. ADMIN LOGIN
+// 4. ADMIN LOGIN / LOGOUT
 // ==================================================================
 Route::get('/admin/login', function () use ($headStyles) {
     $html = '
@@ -211,240 +319,224 @@ Route::post('/admin/logout', function (Request $request) {
 });
 
 // ==================================================================
-// 5. ADMIN AREA (protected)
+// 5. ADMIN DASHBOARD
 // ==================================================================
-Route::middleware([AdminAuth::class])->prefix('admin')->group(function () use ($categories, $headStyles) {
+Route::get('/admin/dashboard', function () use ($categories, $headStyles, $navbar) {
+    if ($redirect = requireAdmin()) return $redirect;
 
-    $navbar = function ($active) {
-        $links = [
-            'dashboard'    => ['/admin/dashboard', 'ዳሽቦርድ'],
-            'participants' => ['/admin/participants', 'ተሳታፊዎች'],
-        ];
-        $html = '<nav class="bg-gray-900 text-white px-6 py-4 flex justify-between items-center">
-            <span class="font-bold">🚀 Admin Panel</span>
-            <div class="flex gap-6 items-center">';
-        foreach ($links as $key => [$url, $label]) {
-            $cls = $key === $active ? 'text-cyan-400 font-semibold' : 'text-gray-300 hover:text-white';
-            $html .= '<a href="' . $url . '" class="' . $cls . '">' . $label . '</a>';
-        }
-        $html .= '<form action="/admin/logout" method="POST" class="inline">
-                <input type="hidden" name="_token" value="' . csrf_token() . '">
-                <button type="submit" class="text-red-400 hover:text-red-300">ውጣ</button>
-            </form>
-        </div></nav>';
-        return $html;
-    };
+    $total = Participant::count();
+    $pending = Participant::where('status', 'pending')->count();
+    $approved = Participant::where('status', 'approved')->count();
+    $rejected = Participant::where('status', 'rejected')->count();
 
-    // -------------------- DASHBOARD --------------------
-    Route::get('/dashboard', function () use ($categories, $headStyles, $navbar) {
-        $total = Participant::count();
-        $pending = Participant::where('status', 'pending')->count();
-        $approved = Participant::where('status', 'approved')->count();
-        $rejected = Participant::where('status', 'rejected')->count();
+    $catLabels = [];
+    $catCounts = [];
+    foreach ($categories as $key => $label) {
+        $catLabels[] = $label;
+        $catCounts[] = Participant::where('category', $key)->count();
+    }
 
-        $catLabels = [];
-        $catCounts = [];
-        foreach ($categories as $key => $label) {
-            $catLabels[] = $label;
-            $catCounts[] = Participant::where('category', $key)->count();
-        }
+    $html = '
+    <!DOCTYPE html>
+    <html lang="am">
+    <head>' . $headStyles . '<title>Admin Dashboard</title></head>
+    <body class="bg-gray-100 min-h-screen">
+        ' . $navbar('dashboard') . '
+        <div class="max-w-6xl mx-auto p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">ዳሽቦርድ</h1>
 
-        $html = '
-        <!DOCTYPE html>
-        <html lang="am">
-        <head>' . $headStyles . '<title>Admin Dashboard</title></head>
-        <body class="bg-gray-100 min-h-screen">
-            ' . $navbar('dashboard') . '
-            <div class="max-w-6xl mx-auto p-6">
-                <h1 class="text-2xl font-bold text-gray-800 mb-6">ዳሽቦርድ</h1>
-
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">ጠቅላላ ምዝገባ</p><p class="text-3xl font-bold text-gray-800">' . $total . '</p></div>
-                    <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">በመጠባበቅ ላይ</p><p class="text-3xl font-bold text-yellow-500">' . $pending . '</p></div>
-                    <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">የጸደቁ</p><p class="text-3xl font-bold text-green-600">' . $approved . '</p></div>
-                    <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">ውድቅ የተደረጉ</p><p class="text-3xl font-bold text-red-500">' . $rejected . '</p></div>
-                </div>
-
-                <div class="bg-white p-6 rounded-xl shadow">
-                    <h2 class="font-bold text-gray-700 mb-4">በዘርፍ የተከፋፈለ ምዝገባ</h2>
-                    <canvas id="catChart" height="100"></canvas>
-                </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">ጠቅላላ ምዝገባ</p><p class="text-3xl font-bold text-gray-800">' . $total . '</p></div>
+                <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">በመጠባበቅ ላይ</p><p class="text-3xl font-bold text-yellow-500">' . $pending . '</p></div>
+                <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">የጸደቁ</p><p class="text-3xl font-bold text-green-600">' . $approved . '</p></div>
+                <div class="bg-white p-5 rounded-xl shadow"><p class="text-gray-500 text-sm">ውድቅ የተደረጉ</p><p class="text-3xl font-bold text-red-500">' . $rejected . '</p></div>
             </div>
 
-            <script>
-                new Chart(document.getElementById("catChart"), {
-                    type: "bar",
-                    data: {
-                        labels: ' . json_encode($catLabels) . ',
-                        datasets: [{
-                            label: "ተመዝጋቢዎች",
-                            data: ' . json_encode($catCounts) . ',
-                            backgroundColor: "#06b6d4"
-                        }]
-                    },
-                    options: { responsive: true, plugins: { legend: { display: false } } }
-                });
-            </script>
-        </body>
-        </html>';
+            <div class="bg-white p-6 rounded-xl shadow">
+                <h2 class="font-bold text-gray-700 mb-4">በዘርፍ የተከፋፈለ ምዝገባ</h2>
+                <canvas id="catChart" height="100"></canvas>
+            </div>
+        </div>
 
-        return response($html);
-    });
+        <script>
+            new Chart(document.getElementById("catChart"), {
+                type: "bar",
+                data: {
+                    labels: ' . json_encode($catLabels) . ',
+                    datasets: [{
+                        label: "ተመዝጋቢዎች",
+                        data: ' . json_encode($catCounts) . ',
+                        backgroundColor: "#06b6d4"
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+        </script>
+    </body>
+    </html>';
 
-    // -------------------- PARTICIPANTS LIST (search + filter) --------------------
-    Route::get('/participants', function (Request $request) use ($categories, $headStyles, $navbar) {
-        $query = Participant::query()
-            ->search($request->get('q'))
-            ->category($request->get('category'))
-            ->status($request->get('status'))
-            ->latest();
+    return response($html);
+});
 
-        $participants = $query->paginate(15)->withQueryString();
+// ==================================================================
+// 6. ADMIN PARTICIPANTS LIST (search + filter)
+// ==================================================================
+Route::get('/admin/participants', function (Request $request) use ($categories, $headStyles, $navbar) {
+    if ($redirect = requireAdmin()) return $redirect;
 
-        $catFilterOptions = '<option value="all">ሁሉም ዘርፎች</option>';
-        foreach ($categories as $key => $label) {
-            $sel = $request->get('category') === $key ? 'selected' : '';
-            $catFilterOptions .= '<option value="' . $key . '" ' . $sel . '>' . $label . '</option>';
-        }
+    $query = Participant::query()
+        ->search($request->get('q'))
+        ->category($request->get('category'))
+        ->status($request->get('status'))
+        ->latest();
 
-        $statusOptions = '';
-        foreach (['all' => 'ሁሉም ሁኔታዎች', 'pending' => 'በመጠባበቅ ላይ', 'approved' => 'የጸደቁ', 'rejected' => 'ውድቅ የተደረጉ'] as $key => $label) {
-            $sel = $request->get('status', 'all') === $key ? 'selected' : '';
-            $statusOptions .= '<option value="' . $key . '" ' . $sel . '>' . $label . '</option>';
-        }
+    $participants = $query->paginate(15)->withQueryString();
 
-        $rows = '';
-        foreach ($participants as $p) {
-            $statusBadge = match ($p->status) {
-                'approved' => '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">የጸደቀ</span>',
-                'rejected' => '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-semibold">ውድቅ</span>',
-                default    => '<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-semibold">በመጠባበቅ</span>',
-            };
+    $catFilterOptions = '<option value="all">ሁሉም ዘርፎች</option>';
+    foreach ($categories as $key => $label) {
+        $sel = $request->get('category') === $key ? 'selected' : '';
+        $catFilterOptions .= '<option value="' . $key . '" ' . $sel . '>' . $label . '</option>';
+    }
 
-            $rows .= '
-            <tr class="hover:bg-gray-50 border-b">
-                <td class="p-3">
-                    <p class="font-semibold text-gray-800">' . htmlspecialchars($p->name) . '</p>
-                    <p class="text-xs text-gray-500">' . htmlspecialchars($p->phone) . '</p>
-                </td>
-                <td class="p-3 text-sm text-gray-600">' . htmlspecialchars($categories[$p->category] ?? $p->category) . '</td>
-                <td class="p-3 text-sm text-gray-600">' . htmlspecialchars($p->project_title ?? '-') . '</td>
-                <td class="p-3">' . $statusBadge . '</td>
-                <td class="p-3 text-center">
-                    <a href="/storage/' . $p->screenshot . '" target="_blank" class="text-blue-600 hover:underline text-sm">ስክሪንሻት</a>
-                </td>
-                <td class="p-3 text-center whitespace-nowrap">
-                    <form action="/admin/participants/' . $p->id . '/approve" method="POST" class="inline">
-                        <input type="hidden" name="_token" value="' . csrf_token() . '">
-                        <button class="text-green-600 hover:underline text-sm mr-2">አጽድቅ</button>
-                    </form>
-                    <form action="/admin/participants/' . $p->id . '/reject" method="POST" class="inline">
-                        <input type="hidden" name="_token" value="' . csrf_token() . '">
-                        <button class="text-red-500 hover:underline text-sm mr-2">ውድቅ</button>
-                    </form>
-                    <form action="/admin/participants/' . $p->id . '" method="POST" class="inline" onsubmit="return confirm(\'እርግጠኛ ኖት?\');">
-                        <input type="hidden" name="_token" value="' . csrf_token() . '">
-                        <input type="hidden" name="_method" value="DELETE">
-                        <button class="text-gray-400 hover:text-gray-700 text-sm">ሰርዝ</button>
-                    </form>
-                </td>
-            </tr>';
-        }
+    $statusOptions = '';
+    foreach (['all' => 'ሁሉም ሁኔታዎች', 'pending' => 'በመጠባበቅ ላይ', 'approved' => 'የጸደቁ', 'rejected' => 'ውድቅ የተደረጉ'] as $key => $label) {
+        $sel = $request->get('status', 'all') === $key ? 'selected' : '';
+        $statusOptions .= '<option value="' . $key . '" ' . $sel . '>' . $label . '</option>';
+    }
 
-        if ($participants->isEmpty()) {
-            $rows = '<tr><td colspan="6" class="text-center p-6 text-gray-500">ምንም ውጤት አልተገኘም።</td></tr>';
-        }
+    $rows = '';
+    foreach ($participants as $p) {
+        $statusBadge = match ($p->status) {
+            'approved' => '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">የጸደቀ</span>',
+            'rejected' => '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-semibold">ውድቅ</span>',
+            default    => '<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-semibold">በመጠባበቅ</span>',
+        };
 
-        $html = '
-        <!DOCTYPE html>
-        <html lang="am">
-        <head>' . $headStyles . '<title>ተሳታፊዎች</title></head>
-        <body class="bg-gray-100 min-h-screen">
-            ' . $navbar('participants') . '
-            <div class="max-w-6xl mx-auto p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h1 class="text-2xl font-bold text-gray-800">የተመዘገቡ ተሳታፊዎች</h1>
-                    <a href="/admin/participants/export?' . http_build_query($request->query()) . '" class="bg-gray-800 text-white text-sm font-semibold px-4 py-2 rounded hover:bg-gray-700">CSV አውርድ</a>
-                </div>
-
-                <form method="GET" class="bg-white p-4 rounded-xl shadow mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <input type="text" name="q" value="' . htmlspecialchars($request->get('q', '')) . '" placeholder="በስም/ስልክ ይፈልጉ..." class="border border-gray-300 p-2 rounded md:col-span-2">
-                    <select name="category" class="border border-gray-300 p-2 rounded">' . $catFilterOptions . '</select>
-                    <select name="status" class="border border-gray-300 p-2 rounded">' . $statusOptions . '</select>
-                    <button type="submit" class="md:col-span-4 bg-cyan-600 text-white font-semibold py-2 rounded hover:bg-cyan-500">ፈልግ</button>
+        $rows .= '
+        <tr class="hover:bg-gray-50 border-b">
+            <td class="p-3">
+                <p class="font-semibold text-gray-800">' . htmlspecialchars($p->name) . '</p>
+                <p class="text-xs text-gray-500">' . htmlspecialchars($p->phone) . '</p>
+            </td>
+            <td class="p-3 text-sm text-gray-600">' . htmlspecialchars($categories[$p->category] ?? $p->category) . '</td>
+            <td class="p-3 text-sm text-gray-600">' . htmlspecialchars($p->project_title ?? '-') . '</td>
+            <td class="p-3">' . $statusBadge . '</td>
+            <td class="p-3 text-center">
+                <a href="/storage/' . $p->screenshot . '" target="_blank" class="text-blue-600 hover:underline text-sm">ስክሪንሻት</a>
+            </td>
+            <td class="p-3 text-center whitespace-nowrap">
+                <form action="/admin/participants/' . $p->id . '/approve" method="POST" class="inline">
+                    <input type="hidden" name="_token" value="' . csrf_token() . '">
+                    <button class="text-green-600 hover:underline text-sm mr-2">አጽድቅ</button>
                 </form>
+                <form action="/admin/participants/' . $p->id . '/reject" method="POST" class="inline">
+                    <input type="hidden" name="_token" value="' . csrf_token() . '">
+                    <button class="text-red-500 hover:underline text-sm mr-2">ውድቅ</button>
+                </form>
+                <form action="/admin/participants/' . $p->id . '" method="POST" class="inline" onsubmit="return confirm(\'እርግጠኛ ኖት?\');">
+                    <input type="hidden" name="_token" value="' . csrf_token() . '">
+                    <input type="hidden" name="_method" value="DELETE">
+                    <button class="text-gray-400 hover:text-gray-700 text-sm">ሰርዝ</button>
+                </form>
+            </td>
+        </tr>';
+    }
 
-                <div class="bg-white rounded-xl shadow overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead class="bg-gray-800 text-white text-sm">
-                            <tr>
-                                <th class="p-3">ስም</th>
-                                <th class="p-3">ዘርፍ</th>
-                                <th class="p-3">ፕሮጀክት</th>
-                                <th class="p-3">ሁኔታ</th>
-                                <th class="p-3 text-center">ማረጋገጫ</th>
-                                <th class="p-3 text-center">ተግባር</th>
-                            </tr>
-                        </thead>
-                        <tbody>' . $rows . '</tbody>
-                    </table>
-                </div>
+    if ($participants->isEmpty()) {
+        $rows = '<tr><td colspan="6" class="text-center p-6 text-gray-500">ምንም ውጤት አልተገኘም።</td></tr>';
+    }
 
-                <div class="mt-4">' . $participants->links() . '</div>
+    $html = '
+    <!DOCTYPE html>
+    <html lang="am">
+    <head>' . $headStyles . '<title>ተሳታፊዎች</title></head>
+    <body class="bg-gray-100 min-h-screen">
+        ' . $navbar('participants') . '
+        <div class="max-w-6xl mx-auto p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-2xl font-bold text-gray-800">የተመዘገቡ ተሳታፊዎች</h1>
+                <a href="/admin/participants/export?' . http_build_query($request->query()) . '" class="bg-gray-800 text-white text-sm font-semibold px-4 py-2 rounded hover:bg-gray-700">CSV አውርድ</a>
             </div>
-        </body>
-        </html>';
 
-        return response($html);
-    });
+            <form method="GET" class="bg-white p-4 rounded-xl shadow mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input type="text" name="q" value="' . htmlspecialchars($request->get('q', '')) . '" placeholder="በስም/ስልክ ይፈልጉ..." class="border border-gray-300 p-2 rounded md:col-span-2">
+                <select name="category" class="border border-gray-300 p-2 rounded">' . $catFilterOptions . '</select>
+                <select name="status" class="border border-gray-300 p-2 rounded">' . $statusOptions . '</select>
+                <button type="submit" class="md:col-span-4 bg-cyan-600 text-white font-semibold py-2 rounded hover:bg-cyan-500">ፈልግ</button>
+            </form>
 
-    // -------------------- APPROVE / REJECT / DELETE --------------------
-    Route::post('/participants/{id}/approve', function ($id) {
-        Participant::findOrFail($id)->update(['status' => 'approved']);
-        return redirect()->back();
-    });
+            <div class="bg-white rounded-xl shadow overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-800 text-white text-sm">
+                        <tr>
+                            <th class="p-3">ስም</th>
+                            <th class="p-3">ዘርፍ</th>
+                            <th class="p-3">ፕሮጀክት</th>
+                            <th class="p-3">ሁኔታ</th>
+                            <th class="p-3 text-center">ማረጋገጫ</th>
+                            <th class="p-3 text-center">ተግባር</th>
+                        </tr>
+                    </thead>
+                    <tbody>' . $rows . '</tbody>
+                </table>
+            </div>
 
-    Route::post('/participants/{id}/reject', function ($id) {
-        Participant::findOrFail($id)->update(['status' => 'rejected']);
-        return redirect()->back();
-    });
+            <div class="mt-4">' . $participants->links() . '</div>
+        </div>
+    </body>
+    </html>';
 
-    Route::delete('/participants/{id}', function ($id) {
-        $participant = Participant::findOrFail($id);
-        \Illuminate\Support\Facades\Storage::disk('public')->delete($participant->screenshot);
-        $participant->delete();
-        return redirect()->back();
-    });
+    return response($html);
+});
 
-    // -------------------- CSV EXPORT --------------------
-    Route::get('/participants/export', function (Request $request) use ($categories) {
-        $participants = Participant::query()
-            ->search($request->get('q'))
-            ->category($request->get('category'))
-            ->status($request->get('status'))
-            ->latest()
-            ->get();
+// ==================================================================
+// 7. APPROVE / REJECT / DELETE
+// ==================================================================
+Route::post('/admin/participants/{id}/approve', function ($id) {
+    if ($redirect = requireAdmin()) return $redirect;
+    Participant::findOrFail($id)->update(['status' => 'approved']);
+    return redirect()->back();
+});
 
-        $filename = 'participants_' . now()->format('Y_m_d_His') . '.csv';
+Route::post('/admin/participants/{id}/reject', function ($id) {
+    if ($redirect = requireAdmin()) return $redirect;
+    Participant::findOrFail($id)->update(['status' => 'rejected']);
+    return redirect()->back();
+});
 
-        return response()->streamDownload(function () use ($participants, $categories) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['ID', 'Name', 'Phone', 'Email', 'Grade', 'Category', 'Team', 'Project Title', 'Status', 'Registered At']);
-            foreach ($participants as $p) {
-                fputcsv($out, [
-                    $p->id,
-                    $p->name,
-                    $p->phone,
-                    $p->email,
-                    $p->grade,
-                    $categories[$p->category] ?? $p->category,
-                    $p->team_name,
-                    $p->project_title,
-                    $p->status,
-                    $p->created_at,
-                ]);
-            }
-            fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv']);
-    });
+Route::delete('/admin/participants/{id}', function ($id) {
+    if ($redirect = requireAdmin()) return $redirect;
+    $participant = Participant::findOrFail($id);
+    Storage::disk('public')->delete($participant->screenshot);
+    $participant->delete();
+    return redirect()->back();
+});
+
+// ==================================================================
+// 8. CSV EXPORT
+// ==================================================================
+Route::get('/admin/participants/export', function (Request $request) use ($categories) {
+    if ($redirect = requireAdmin()) return $redirect;
+
+    $participants = Participant::query()
+        ->search($request->get('q'))
+        ->category($request->get('category'))
+        ->status($request->get('status'))
+        ->latest()
+        ->get();
+
+    $filename = 'participants_' . now()->format('Y_m_d_His') . '.csv';
+
+    return response()->streamDownload(function () use ($participants, $categories) {
+        $out = fopen('php://output', 'w');
+        fputcsv($out, ['ID', 'Name', 'Phone', 'Email', 'Grade', 'Category', 'Team', 'Project Title', 'Status', 'Registered At']);
+        foreach ($participants as $p) {
+            fputcsv($out, [
+                $p->id, $p->name, $p->phone, $p->email, $p->grade,
+                $categories[$p->category] ?? $p->category,
+                $p->team_name, $p->project_title, $p->status, $p->created_at,
+            ]);
+        }
+        fclose($out);
+    }, $filename, ['Content-Type' => 'text/csv']);
 });
