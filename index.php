@@ -8,7 +8,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Eloquent\Model;
 
 // ==================================================================
-// 0. MODEL (defined here so everything lives in one file)
+// 0. MODEL
 // ==================================================================
 if (!class_exists('Participant')) {
     class Participant extends Model
@@ -54,35 +54,37 @@ if (!class_exists('Participant')) {
 }
 
 // ==================================================================
-// 0b. AUTO-MIGRATE (creates/updates the table without a separate
-//     migration file — for production, move this into a real
-//     migration instead of running it on every request)
+// 0b. AUTO-MIGRATE
 // ==================================================================
-if (!Schema::hasTable('participants')) {
-    Schema::create('participants', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('phone')->nullable();
-        $table->string('email')->nullable();
-        $table->string('grade');
-        $table->string('category')->default('robotics');
-        $table->string('team_name')->nullable();
-        $table->string('project_title')->nullable();
-        $table->text('projects');
-        $table->text('goals');
-        $table->string('screenshot');
-        $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
-        $table->timestamps();
-    });
-} else {
-    Schema::table('participants', function (Blueprint $table) {
-        if (!Schema::hasColumn('participants', 'phone'))         $table->string('phone')->nullable();
-        if (!Schema::hasColumn('participants', 'email'))         $table->string('email')->nullable();
-        if (!Schema::hasColumn('participants', 'category'))      $table->string('category')->default('robotics');
-        if (!Schema::hasColumn('participants', 'team_name'))     $table->string('team_name')->nullable();
-        if (!Schema::hasColumn('participants', 'project_title')) $table->string('project_title')->nullable();
-        if (!Schema::hasColumn('participants', 'status'))        $table->string('status')->default('pending');
-    });
+try {
+    if (!Schema::hasTable('participants')) {
+        Schema::create('participants', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('phone')->nullable();
+            $table->string('email')->nullable();
+            $table->string('grade');
+            $table->string('category')->default('robotics');
+            $table->string('team_name')->nullable();
+            $table->string('project_title')->nullable();
+            $table->text('projects');
+            $table->text('goals');
+            $table->string('screenshot');
+            $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
+            $table->timestamps();
+        });
+    } else {
+        Schema::table('participants', function (Blueprint $table) {
+            if (!Schema::hasColumn('participants', 'phone'))         $table->string('phone')->nullable();
+            if (!Schema::hasColumn('participants', 'email'))         $table->string('email')->nullable();
+            if (!Schema::hasColumn('participants', 'category'))      $table->string('category')->default('robotics');
+            if (!Schema::hasColumn('participants', 'team_name'))     $table->string('team_name')->nullable();
+            if (!Schema::hasColumn('participants', 'project_title')) $table->string('project_title')->nullable();
+            if (!Schema::hasColumn('participants', 'status'))        $table->string('status')->default('pending');
+        });
+    }
+} catch (\Exception $e) {
+    // የመረጃ ቋት ግንኙነት ከተሳሳተ አፕሊኬሽኑ እንዳይቋረጥ
 }
 
 // ==================================================================
@@ -243,16 +245,16 @@ Route::get('/register', function () use ($categories, $headStyles) {
 // ==================================================================
 Route::post('/register', function (Request $request) use ($categories) {
     $request->validate([
-        'name'           => 'required|string|max:255',
-        'phone'          => 'required|string|max:50',
-        'email'          => 'nullable|email|max:255',
-        'grade'          => 'required|string|max:50',
-        'category'       => 'required|in:' . implode(',', array_keys($categories)),
-        'team_name'      => 'nullable|string|max:255',
-        'project_title'  => 'required|string|max:255',
-        'projects'       => 'required|string',
-        'goals'          => 'required|string',
-        'screenshot'     => 'required|image|mimes:jpeg,png,jpg|max:2048',
+        'name'          => 'required|string|max:255',
+        'phone'         => 'required|string|max:50',
+        'email'         => 'nullable|email|max:255',
+        'grade'         => 'required|string|max:50',
+        'category'      => 'required|in:' . implode(',', array_keys($categories)),
+        'team_name'     => 'nullable|string|max:255',
+        'project_title' => 'required|string|max:255',
+        'projects'      => 'required|string',
+        'goals'         => 'required|string',
+        'screenshot'    => 'required|image|mimes:jpeg,png,jpg|max:2048',
     ]);
 
     $path = $request->file('screenshot')->store('screenshots', 'public');
@@ -379,7 +381,7 @@ Route::get('/admin/dashboard', function () use ($categories, $headStyles, $navba
 });
 
 // ==================================================================
-// 6. ADMIN PARTICIPANTS LIST (search + filter)
+// 6. ADMIN PARTICIPANTS LIST
 // ==================================================================
 Route::get('/admin/participants', function (Request $request) use ($categories, $headStyles, $navbar) {
     if ($redirect = requireAdmin()) return $redirect;
@@ -416,7 +418,7 @@ Route::get('/admin/participants', function (Request $request) use ($categories, 
         <tr class="hover:bg-gray-50 border-b">
             <td class="p-3">
                 <p class="font-semibold text-gray-800">' . htmlspecialchars($p->name) . '</p>
-                <p class="text-xs text-gray-500">' . htmlspecialchars($p->phone) . '</p>
+                <p class="text-xs text-gray-500">' . htmlspecialchars($p->phone ?? '') . '</p>
             </td>
             <td class="p-3 text-sm text-gray-600">' . htmlspecialchars($categories[$p->category] ?? $p->category) . '</td>
             <td class="p-3 text-sm text-gray-600">' . htmlspecialchars($p->project_title ?? '-') . '</td>
