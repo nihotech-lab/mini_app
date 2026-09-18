@@ -113,7 +113,7 @@ function requireAdmin()
 $categories = [
     'robotics' => 'ሮቦቲክስ እና ኢኖቬሽን (Robotics & Innovation)',
     'software' => 'ሶፍትዌር ልማት (Software Development)',
-    'ai'       => 'ሰው ሰራሽ ልህቀት (AI & Machine Learning)',
+    'ai'        => 'ሰው ሰራሽ ልህቀት (AI & Machine Learning)',
     'art'      => 'ዲጂታል ጥበብ እና ዲዛይን (Digital Art & Design)',
 ];
 
