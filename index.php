@@ -3,21 +3,30 @@ require __DIR__ . '/vendor/autoload.php';
 
 use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Facade;
-
-// 1. የኮንቴይነር ማመልከቻውን ማስጀመር
-$app = new Container();
-Container::setInstance($app);
-
-// 2. ፋዴዱ ከየትኛው መተግበሪያ ጋር እንደሚገናኝ መንገር
-Facade::setFacadeApplication($app);
-
-// ከዚህ በታች የእርስዎን ሮቶች (Routes) እና ሌሎች ኮዶች መፃፍ ይችላሉ
+use Illuminate\Routing\Router;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Eloquent\Model;
+
+// 1. የኮንቴይነር ማመልከቻውን ማስጀመር
+$app = new Container();
+Container::setInstance($app);
+
+// አስፈላጊ የሆኑ ሰርቪሶችን በኮንቴይነር ውስጥ ማስመዝገብ
+$app->singleton('events', function ($app) {
+    return new Dispatcher($app);
+});
+
+$app->singleton('router', function ($app) {
+    return new Router($app['events'], $app);
+});
+
+// 2. ፋዴዱ ከየትኛው መተግበሪያ ጋር እንደሚገናኝ መንገር
+Facade::setFacadeApplication($app);
 
 // ==================================================================
 // 0. MODEL
@@ -113,7 +122,7 @@ function requireAdmin()
 $categories = [
     'robotics' => 'ሮቦቲክስ እና ኢኖቬሽን (Robotics & Innovation)',
     'software' => 'ሶፍትዌር ልማት (Software Development)',
-    'ai'        => 'ሰው ሰራሽ ልህቀት (AI & Machine Learning)',
+    'ai'       => 'ሰው ሰራሽ ልህቀት (AI & Machine Learning)',
     'art'      => 'ዲጂታል ጥበብ እና ዲዛይን (Digital Art & Design)',
 ];
 
