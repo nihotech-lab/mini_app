@@ -1,5 +1,17 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
+
+use Illuminate\Container\Container;
+use Illuminate\Support\Facades\Facade;
+
+// 1. የኮንቴይነር ማመልከቻውን ማስጀመር
+$app = new Container();
+Container::setInstance($app);
+
+// 2. ፋዴዱ ከየትኛው መተግበሪያ ጋር እንደሚገናኝ መንገር
+Facade::setFacadeApplication($app);
+
+// ከዚህ በታች የእርስዎን ሮቶች (Routes) እና ሌሎች ኮዶች መፃፍ ይችላሉ
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
