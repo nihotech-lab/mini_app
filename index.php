@@ -1,5 +1,5 @@
 <?php
-
+require __DIR__ . '/vendor/autoload.php';
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
