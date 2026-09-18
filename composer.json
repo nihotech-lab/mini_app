@@ -1,4 +1,6 @@
 {
     "name": "nihotech-lab/mini_app",
-    "require": {}
+    "require": {
+        "illuminate/database": "^10.0"
+    }
 }
